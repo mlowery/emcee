@@ -38,7 +38,7 @@ $ emcee run -c c1 -c c2 -c c3 -- kubectl auth can-i create secret -n default
 Here's another but calling the example script in this project that has no stdout but saves content to per-context files.
 
 ```
-$ emcee run -c c1 -c c2 -c c3 -o none -- bash -c "example/run.sh"
+$ emcee run -c c1 -c c2 -c c3 -o none -- example/run.sh
 $ ls *-out
 ```
 
@@ -46,10 +46,12 @@ $ ls *-out
 
 Use of this method assumes you have [cluster registry](https://github.com/kubernetes/cluster-registry) running.
 
-Search a configmap's data in all clusters matching selector `region=us-east-1` in cluster registry, up to `50` at once.
+Search a configmap's data in all clusters matching selector `region=us-east-1` in cluster registry, up to `50` at once, and print answer. The `|| true` is necessary because failure to match in `grep` returns non-zero and emcee assumes non-zero is failure.
 
 ```sh
 $ emcee run -w 50 --cr-context=cr -l region=us-east-1 -- bash -c "kubectl -n kube-system get cm mycm -o yaml | grep mykey || true"
+        c2|  mykey: v2
+        c1|  mykey: v1
 ```
 
 ### Adding Your Own Getter
