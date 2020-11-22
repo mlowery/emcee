@@ -22,7 +22,9 @@ Your first decision is what command you want to run against all specified kubeco
 After that, you need to decide how you want to derive the list of kubeconfig contexts. The method of deriving the kubeconfig contexts depends on which "REST config getter" you use. There are two out of the box: 
 
 1. Explicit Contexts: With this, you just specify one or more contexts with `-c`.
-2. Cluster Registry: With this, you specify the CR context with `--cr-context` and an optional selector to filter the clusters with `-l`.
+2. Cluster Registry (CR): With this, you specify the CR context with `--cr-context` and an optional selector to filter the clusters with `-l`. Note: This assumes you have a working cluster registry (see below example).
+
+## Examples
 
 ### With Explicit Contexts
 
@@ -44,7 +46,7 @@ $ ls *-out
 
 ### With Cluster Registry
 
-Use of this method assumes you have [cluster registry](https://github.com/kubernetes/cluster-registry) running.
+Use of this method assumes you have a working [cluster registry](https://github.com/kubernetes/cluster-registry).
 
 Search a configmap's data in all clusters matching selector `region=us-east-1` in cluster registry, up to `50` at once, and print answer. The `|| true` is necessary because failure to match in `grep` returns non-zero and emcee assumes non-zero is failure.
 
@@ -54,6 +56,6 @@ $ emcee run -w 50 --cr-context=cr -l region=us-east-1 -- bash -c "kubectl -n kub
         c1|  mykey: v1
 ```
 
-### Adding Your Own Getter
+## Adding Your Own Getter
 
 Just implement `RestConfigGetter`.
