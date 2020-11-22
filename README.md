@@ -1,6 +1,6 @@
 # 🎤emcee
 
-Multi-cluster (aka mc aka emcee) binary and library for running commands across Kubernetes clusters
+Multi-cluster (aka mc aka emcee) binary and library for running commands in parallel across Kubernetes clusters.
 
 ## Features
 
@@ -35,11 +35,11 @@ $ emcee run -c c1 -c c2 -c c3 -- kubectl auth can-i create secret -n default
         c3|yes
 ```
 
-Here's another but calling the example script in this project.
+Here's another but calling the example script in this project that has no stdout but saves content to per-context files.
 
 ```
 $ emcee run -c c1 -c c2 -c c3 -o none -- bash -c "example/run.sh"
-$ ll *-out
+$ ls *-out
 ```
 
 ### With Cluster Registry
