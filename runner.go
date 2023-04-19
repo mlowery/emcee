@@ -2,8 +2,8 @@ package emcee
 
 import (
 	"fmt"
+	"log"
 	"sync"
-	"sync/atomic"
 
 	"go.uber.org/multierr"
 	"k8s.io/client-go/rest"
@@ -24,24 +24,7 @@ func NewRunner(threadiness int, restConfigs []*NamedRestConfig, fn DoInClusterFu
 	}
 }
 
-type AtomicBool struct {
-	flag int32
-}
-
-func (b *AtomicBool) Set() {
-	var i int32 = 1
-	atomic.StoreInt32(&(b.flag), int32(i))
-}
-
-func (b *AtomicBool) Get() bool {
-	if atomic.LoadInt32(&(b.flag)) != 0 {
-		return true
-	}
-	return false
-}
-
 type runner struct {
-	interrupted AtomicBool
 	fn          DoInClusterFunc
 	threadiness int
 	restConfigs []*NamedRestConfig
@@ -65,36 +48,43 @@ func (r *runner) Run(stopCh <-chan struct{}) error {
 		}
 	}()
 
-	go func() {
-		<-stopCh
-		r.interrupted.Set()
-	}()
-
 	// this must be a pointer
 	wg := &sync.WaitGroup{}
 	for w := 0; w < r.threadiness; w++ {
 		wg.Add(1)
-		go r.worker(r.fn, restConfigCh, errCh, wg)
+		go r.worker(r.fn, restConfigCh, errCh, stopCh, wg)
 	}
 
+L:
 	for _, restConfig := range r.restConfigs {
-		restConfigCh <- restConfig
+		select {
+		case restConfigCh <- restConfig:
+		case <-stopCh:
+			break L
+		}
 	}
 	close(restConfigCh)
+	log.Println("waiting for all workers to finish")
 	wg.Wait()
 	close(errCh)
+	log.Println("waiting to collect all errors")
 	errWG.Wait()
-	if r.interrupted.Get() {
+	select {
+	case <-stopCh:
 		errs = append(errs, fmt.Errorf("interrupted"))
+	default:
 	}
+	log.Println("done")
 	return multierr.Combine(errs...)
 }
 
-func (r *runner) worker(fn DoInClusterFunc, restConfigCh <-chan *NamedRestConfig, errCh chan<- error, wg *sync.WaitGroup) {
+func (r *runner) worker(fn DoInClusterFunc, restConfigCh <-chan *NamedRestConfig, errCh chan<- error, stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for restConfig := range restConfigCh {
-		if r.interrupted.Get() {
+		select {
+		case <-stopCh:
 			return
+		default:
 		}
 		err := fn(restConfig)
 		if err != nil {

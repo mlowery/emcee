@@ -1,9 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
-	v1 "k8s.io/api/core/v1"
 	"log"
 	"os"
 	"os/signal"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/urfave/cli/v2"
 	"go.uber.org/multierr"
+	v1 "k8s.io/api/core/v1"
 
 	"github.com/mlowery/emcee"
 )
@@ -48,8 +49,32 @@ func main() {
 						log.Fatalf("command is required")
 					}
 
+					var contexts []string
+					contextList := c.StringSlice("context")
+					contextFile := c.String("context-file")
+					if len(contextList) > 0 && len(contextFile) > 0 {
+						log.Fatalf("--context and --context-file are mutually exclusive")
+					}
+					if len(contextList) > 0 {
+						contexts = contextList
+					} else if len(contextFile) > 0 {
+						file, err := os.Open(contextFile)
+						if err != nil {
+							log.Fatalf("failed to open context-file: %v", err)
+						}
+						defer file.Close()
+
+						scanner := bufio.NewScanner(file)
+						for scanner.Scan() {
+							contexts = append(contexts, scanner.Text())
+						}
+
+						if err := scanner.Err(); err != nil {
+							log.Fatalf("failed to read context-file: %v", err)
+						}
+					}
+
 					kubeconfig := c.String("kubeconfig")
-					contexts := c.StringSlice("context")
 					crContext := c.String("cr-context")
 					var getter emcee.RestConfigGetter
 					if len(contexts) > 0 {
@@ -71,14 +96,15 @@ func main() {
 					if err != nil {
 						log.Fatalf("failed to get rest configs: %v", err)
 					}
+					log.Printf("processing %d context(s)\n", len(restConfigs))
 					runner := emcee.NewRunner(c.Int("workers"), restConfigs, emcee.NewCommandFunc(c.String("output"), cmd, args...))
 					sigCh := make(chan os.Signal)
 					stopCh := make(chan struct{})
 					signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 					go func() {
 						<-sigCh
-						log.Println("shutting down")
-						stopCh <- struct{}{}
+						log.Println("got signal to shut down")
+						close(stopCh)
 					}()
 					err = runner.Run(stopCh)
 					if err != nil {
@@ -94,11 +120,12 @@ func main() {
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "kubeconfig", Value: defaultKubeconfig, Usage: "path to kubeconfig"},
 					&cli.StringSliceFlag{Name: "context", Aliases: []string{"c"}, Usage: "context from kubeconfig (can be repeated)"},
+					&cli.StringFlag{Name: "context-file", Usage: "file containing contexts, one per line"},
 					&cli.StringFlag{Name: "cr-context", Usage: "context from kubeconfig pointing to cluster registry"},
 					&cli.StringFlag{Name: "cr-namespace", Value: v1.NamespaceDefault, Usage: "namespace within cluster registry to search for clusters"},
-					&cli.StringFlag{Name: "cr-label", Usage: "optional label of from cluster registry to use as context name"},
+					&cli.StringFlag{Name: "cr-label", Usage: "optional label from cluster object to use as kubeconfig context name"},
 					&cli.StringFlag{Name: "selector", Aliases: []string{"l"}, Value: "", Usage: "label selector for cluster registry"},
-					&cli.IntFlag{Name: "workers", Aliases: []string{"w"}, Value: 10, Usage: "level of parallelism"},
+					&cli.IntFlag{Name: "workers", Aliases: []string{"w"}, Value: 1, Usage: "level of parallelism"},
 					&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Value: emcee.CommandFuncOutputColor, Usage: fmt.Sprintf("output type (one of %s)", strings.Join(emcee.CommandFuncOutputOptions, ","))},
 				},
 			},

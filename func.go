@@ -1,13 +1,12 @@
 package emcee
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"os/exec"
-	"regexp"
-	"strings"
 	"sync"
 	"time"
 
@@ -37,8 +36,6 @@ var (
 		CommandFuncOutputPrefix,
 		CommandFuncOutputNone,
 	}
-
-	newLineRegexp = regexp.MustCompile(`\n`)
 )
 
 const (
@@ -48,7 +45,7 @@ const (
 	CommandFuncOutputNone   = "none"
 )
 
-func NewCommandFunc(output string, name string, arg ...string) DoInClusterFunc {
+func NewCommandFunc(outputMode string, name string, arg ...string) DoInClusterFunc {
 	return func(config *NamedRestConfig) error {
 		kubeconfig, err := restConfigToTempKubeconfig(config)
 		if err != nil {
@@ -61,42 +58,50 @@ func NewCommandFunc(output string, name string, arg ...string) DoInClusterFunc {
 		cmd.Env = append(os.Environ(),
 			fmt.Sprintf("KUBECONFIG=%s", kubeconfig),
 		)
-		stdoutStderr, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("failed to run command %q: %s: %w", name, stdoutStderr, err)
-		}
-		if output == CommandFuncOutputNone {
-			return nil
-		}
-		outString := string(stdoutStderr)
-		// remove it now so it can be added later
-		outString = strings.TrimSuffix(outString, "\n")
-		if len(outString) == 0 {
-			return nil
-		}
+
 		// lock ensures no interleaving of output and protects colorIndex
 		logMutex.Lock()
 		defer logMutex.Unlock()
 		printf := func(format string, a ...interface{}) {
 			fmt.Printf(format, a...)
 		}
-		switch output {
+		switch outputMode {
+		case CommandFuncOutputNone:
+			printf = func(format string, a ...interface{}) {}
 		case CommandFuncOutputColor:
 			if colorIndex == len(colorWheel)-1 {
 				colorIndex = 0
 			}
-			printf = colorWheel[colorIndex].PrintfFunc()
+			colorPrintf := colorWheel[colorIndex].PrintfFunc()
 			colorIndex += 1
-			// color mode also gets the prefix so fall through
-			fallthrough
+			linePrefix := fmt.Sprintf("%10s|", config.ConfigName)
+			printf = func(format string, a ...interface{}) {
+				colorPrintf(fmt.Sprintf("%s%s", linePrefix, format), a...)
+			}
+
 		case CommandFuncOutputPrefix:
 			linePrefix := fmt.Sprintf("%10s|", config.ConfigName)
-			if len(outString) > 0 {
-				outString = linePrefix + newLineRegexp.ReplaceAllString(outString, "\n"+linePrefix)
+			printf = func(format string, a ...interface{}) {
+				fmt.Printf(fmt.Sprintf("%s%s", linePrefix, format), a...)
 			}
 		}
-		if len(outString) > 0 {
-			printf("%s\n", outString)
+
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			return fmt.Errorf("failed to get pipe for command %q: %w", name, err)
+		}
+		cmd.Stderr = cmd.Stdout
+		cmd.Start()
+
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			m := scanner.Text()
+			printf("%s\n", m)
+		}
+
+		err = cmd.Wait()
+		if err != nil {
+			return fmt.Errorf("failed to run command %q: %w", name, err)
 		}
 		return nil
 	}
@@ -110,7 +115,7 @@ func restConfigToTempKubeconfig(config *NamedRestConfig) (string, error) {
 		}},
 		AuthInfos: map[string]*clientcmdapi.AuthInfo{"defaultAuthInfo": {
 			Token: config.BearerToken,
-			// this is for if exec is being used (e.g. https://github.corp.ebay.com/haibzhou/keystone-client-auth)
+			// this is for if exec is being used
 			Exec: config.ExecProvider.DeepCopy(),
 		}},
 		Contexts: map[string]*clientcmdapi.Context{config.ConfigName: {
