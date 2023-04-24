@@ -27,7 +27,7 @@ func main() {
 	defaultKubeconfig := filepath.Join(usr.HomeDir, ".kube/config")
 
 	app := &cli.App{
-		Name:  "🎤emcee",
+		Name:  "🎤 emcee",
 		Usage: "Multi-cluster operations",
 		Commands: []*cli.Command{
 			{
@@ -66,7 +66,10 @@ func main() {
 
 						scanner := bufio.NewScanner(file)
 						for scanner.Scan() {
-							contexts = append(contexts, scanner.Text())
+							txt := strings.TrimSpace(scanner.Text())
+							if len(txt) > 0 {
+								contexts = append(contexts, scanner.Text())
+							}
 						}
 
 						if err := scanner.Err(); err != nil {

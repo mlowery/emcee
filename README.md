@@ -15,6 +15,12 @@ Due to the parallelism of this tool, it is not recommended for mutating calls.
 
 For the purpose of this project, kubeconfig "context," "cluster," and "restconfig" may be used interchangeably.
 
+## Building
+
+```sh
+$ go build -o emcee ./cmd
+```
+
 ## Using
 
 Your first decision is what command you want to run against all specified kubeconfig contexts.

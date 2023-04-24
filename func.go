@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fatih/color"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
@@ -18,17 +17,6 @@ import (
 var (
 	// pointer since Mutex cannot be copied
 	logMutex = &sync.Mutex{}
-
-	colorWheel = []*color.Color{
-		color.New(color.FgRed),
-		color.New(color.FgGreen),
-		color.New(color.FgYellow),
-		color.New(color.FgBlue),
-		color.New(color.FgMagenta),
-		color.New(color.FgCyan),
-	}
-
-	colorIndex = 0
 
 	CommandFuncOutputOptions = []string{
 		CommandFuncOutputPlain,
@@ -58,10 +46,6 @@ func NewCommandFunc(outputMode string, name string, arg ...string) DoInClusterFu
 		cmd.Env = append(os.Environ(),
 			fmt.Sprintf("KUBECONFIG=%s", kubeconfig),
 		)
-
-		// lock ensures no interleaving of output and protects colorIndex
-		logMutex.Lock()
-		defer logMutex.Unlock()
 		printf := func(format string, a ...interface{}) {
 			fmt.Printf(format, a...)
 		}
@@ -69,11 +53,7 @@ func NewCommandFunc(outputMode string, name string, arg ...string) DoInClusterFu
 		case CommandFuncOutputNone:
 			printf = func(format string, a ...interface{}) {}
 		case CommandFuncOutputColor:
-			if colorIndex == len(colorWheel)-1 {
-				colorIndex = 0
-			}
-			colorPrintf := colorWheel[colorIndex].PrintfFunc()
-			colorIndex += 1
+			colorPrintf := ColorPrintfFunc()
 			linePrefix := fmt.Sprintf("%10s|", config.ConfigName)
 			printf = func(format string, a ...interface{}) {
 				colorPrintf(fmt.Sprintf("%s%s", linePrefix, format), a...)
@@ -96,7 +76,11 @@ func NewCommandFunc(outputMode string, name string, arg ...string) DoInClusterFu
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			m := scanner.Text()
-			printf("%s\n", m)
+			func() {
+				logMutex.Lock()
+				defer logMutex.Unlock()
+				printf("%s\n", m)
+			}()
 		}
 
 		err = cmd.Wait()
